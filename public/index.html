@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <title>กราฟเทรดสด</title>
+</head>
+<body>
+  <h2>📊 แสดงข้อมูลจาก API</h2>
+  <pre id="output">กำลังโหลด...</pre>
+
+  <script>
+    fetch("https://jsonhosting.com/api/json/992e2950")
+      .then(r => r.json())
+      .then(d => document.getElementById("output").textContent = JSON.stringify(d, null, 2))
+      .catch(e => document.getElementById("output").textContent = "เกิดข้อผิดพลาด: " + e);
+  </script>
+</body>
+</html>
