@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SMC Hybrid Pro – Signals</title>
+  <style>
+    :root { --vh: 100vh; }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0; padding: 0; height: 100%;
+      background: #0f172a;
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      overflow: hidden;
+    }
+    header {
+      padding: 10px 12px 6px;
+      background: #0f172a;
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .title { color: #e2e8f0; font-weight: 600; margin-right: 6px; }
+    .btn {
+      border: 1px solid rgba(148,163,184,0.4);
+      background: rgba(15,23,42,0.3);
+      color: #e2e8f0;
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 13px;
+    }
+    .btn.active { background: #38bdf8; color: #0f172a; }
+    #chart-wrap { position: relative; height: calc(100vh - 56px); }
+    #tradingview_chart { width: 100%; height: 100%; }
+    #ai-signal-panel {
+      position: absolute;
+      top: 10px; right: 10px;
+      width: 260px;
+      background: rgba(15,23,42,0.92);
+      border: 1px solid rgba(148,163,184,0.4);
+      border-radius: 10px;
+      padding: 10px 12px 8px;
+      color: #e2e8f0;
+      font-size: 12px;
+      z-index: 99;
+    }
+    #ai-signal-panel .head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .tag { background: #38bdf8; color: #0f172a; padding: 1px 6px; border-radius: 999px; font-size: 10px; }
+    .dir-buy { color: #22c55e; font-weight: 600; }
+    .dir-sell { color: #f43f5e; font-weight: 600; }
+    .row { margin-top: 4px; }
+    .label { color: #94a3b8; font-size: 11px; }
+    .val { font-weight: 500; }
+    .no-signal { color: #94a3b8; font-style: italic; }
+    #ai-copy {
+      margin-top: 6px; width: 100%;
+      background: rgba(15,23,42,0.3);
+      border: 1px solid rgba(148,163,184,0.2);
+      color: #e2e8f0;
+      padding: 4px 0;
+      border-radius: 6px;
+      font-size: 11px;
+    }
+    #ai-status { margin-top: 4px; font-size: 10px; color: #94a3b8; }
+    @media (max-width: 600px){
+      #chart-wrap { height: calc(100vh - 110px); }
+      #ai-signal-panel { width: calc(100% - 20px); left: 10px; right: 10px; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="title">📈 SMC Hybrid Pro Chart</div>
+    <button class="btn active" data-symbol="OANDA:XAUUSD">XAUUSD</button>
+    <button class="btn" data-symbol="OANDA:EURUSD">EURUSD</button>
+    <button class="btn" data-symbol="OANDA:GBPUSD">GBPUSD</button>
+    <button class="btn" data-symbol="OANDA:USDJPY">USDJPY</button>
+    <button class="btn" data-symbol="BINANCE:BTCUSDT">BTCUSDT</button>
+  </header>
+  <div id="chart-wrap">
+    <div id="tradingview_chart"></div>
+    <div id="ai-signal-panel">
+      <div class="head">
+        <div>🤖 SMC High-Profit</div>
+        <span class="tag" id="ai-session">-</span>
+      </div>
+      <div id="ai-content" class="no-signal">รอ API จาก JSONHosting...</div>
+      <div id="ai-status">Loading...</div>
+      <button id="ai-copy">คัดลอก JSON</button>
+    </div>
+  </div>
+
+  <script src="https://s3.tradingview.com/tv.js"></script>
+  <script>
+    // โหลดกราฟ
+    let currentSymbol = "OANDA:XAUUSD";
+    function loadChart(symbol){
+      document.getElementById("tradingview_chart").innerHTML = "";
+      new TradingView.widget({
+        symbol: symbol,
+        interval: "15",
+        container_id: "tradingview_chart",
+        width: "100%",
+        height: "100%",
+        theme: "dark",
+        locale: "th",
+        toolbar_bg: "#0f172a"
+      });
+    }
+    loadChart(currentSymbol);
+    document.querySelectorAll(".btn").forEach(btn=>{
+      btn.addEventListener("click",()=>{
+        document.querySelectorAll(".btn").forEach(b=>b.classList.remove("active"));
+        btn.classList.add("active");
+        currentSymbol = btn.dataset.symbol;
+        loadChart(currentSymbol);
+      });
+    });
+
+    // ดึง API จาก JSONHosting ผ่าน proxy ให้เสถียร
+    const RAW_API = "https://jsonhosting.com/api/json/992e2950";
+    const PROXIES = [
+      "https://api.allorigins.win/raw?url=",
+      "https://corsproxy.io/?",
+      "https://thingproxy.freeboard.io/fetch/"
+    ];
+    const MIN_CONF = 80;
+    const MIN_RR = 2.5;
+    const VALID_SESS = ["London","NY"];
+    let latest = null;
+    let lastId = null;
+
+    async function fetchSignal(){
+      let data = null;
+      let lastErr = null;
+      for(const p of PROXIES){
+        try{
+          const r = await fetch(p + encodeURIComponent(RAW_API), {cache:"no-cache"});
+          if(!r.ok) throw new Error("status "+r.status);
+          data = await r.json();
+          break;
+        }catch(e){ lastErr = e; }
+      }
+      if(!data){
+        render(null, "ดึง API ไม่ได้: " + (lastErr ? lastErr.message : "unknown"));
+        return;
+      }
+      const sig = data;
+
+      // กรอง
+      let rr = sig.rr_value;
+      if(!rr && typeof sig.risk_reward === "string"){
+        const parts = sig.risk_reward.split(":");
+        if(parts.length === 2) rr = parseFloat(parts[1]);
+      }
+      if(sig.confidence < MIN_CONF){
+        render(sig, "ความมั่นใจต่ำกว่า "+MIN_CONF+"%");
+        return;
+      }
+      if(!rr || rr < MIN_RR){
+        render(sig, "R:R ต่ำกว่า "+MIN_RR);
+        return;
+      }
+      if(sig.session && !VALID_SESS.includes(sig.session)){
+        render(sig, "อยู่นอกเซสชัน");
+        return;
+      }
+      if(sig.signal_id && sig.signal_id === lastId){
+        return;
+      }
+
+      latest = sig;
+      lastId = sig.signal_id || Date.now().toString();
+      render(sig, "อัปเดตจาก JSONHosting แล้ว");
+    }
+
+    function render(sig, msg){
+      const box = document.getElementById("ai-content");
+      const sess = document.getElementById("ai-session");
+      const stat = document.getElementById("ai-status");
+      if(!sig || !sig.direction){
+        box.className = "no-signal";
+        box.textContent = "ยังไม่มีสัญญาณ";
+        sess.textContent = "-";
+        stat.textContent = msg || "";
+        return;
+      }
+      const dirClass = sig.direction === "BUY" ? "dir-buy" : "dir-sell";
+      sess.textContent = sig.session || "-";
+      box.className = "";
+      box.innerHTML = `
+        <div class="${dirClass}">สัญญาณ: ${sig.direction} (${sig.symbol} ${sig.timeframe_main})</div>
+        <div class="row"><span class="label">Entry:</span> <span class="val">${sig.entry}</span></div>
+        <div class="row"><span class="label">SL:</span> <span class="val">${sig.stop_loss}</span></div>
+        <div class="row"><span class="label">TP1 / TP2:</span> <span class="val">${sig.take_profit_1} / ${sig.take_profit_2}</span></div>
+        <div class="row"><span class="label">R:R:</span> <span class="val">${sig.risk_reward || sig.rr_value}</span></div>
+        <div class="row"><span class="label">Conf:</span> <span class="val">${sig.confidence}%</span></div>
+        <div class="row"><small>${sig.note || ""}</small></div>
+      `;
+      stat.textContent = msg || "";
+    }
+
+    fetchSignal();
+    setInterval(fetchSignal, 10000);
+
+    document.getElementById("ai-copy").addEventListener("click",()=>{
+      if(!latest){ alert("ยังไม่มีสัญญาณ"); return; }
+      const txt = JSON.stringify(latest,null,2);
+      if(navigator.clipboard){ navigator.clipboard.writeText(txt); }
+      alert("คัดลอกแล้ว");
+    });
+  </script>
+</body>
+</html>
